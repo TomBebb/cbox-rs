@@ -16,9 +16,21 @@ extern fn steal_print(text: *mut libc::c_char) {
     }
 }
 
-fn main() {
+#[test]
+fn test_to_c() {
     unsafe {
         let text = CBox::from("Hello, world!");
-        steal_print(text.unwrap());
+    	steal_print(text.unwrap());
+    }
+}
+
+#[test]
+fn test_clone() {
+    unsafe {
+        let text = CBox::from("Hello, world!");
+        let texts = (0..10).map(|_| text.clone());
+        for text in texts {
+        	steal_print(text.unwrap());
+        }
     }
 }

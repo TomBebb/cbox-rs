@@ -18,6 +18,18 @@ pub trait DisposeRef {
         free(ptr as *mut c_void);
     }
 }
+/// Implemented by any type of which its reference is a C pointer that can be cloned 
+/// into another c pointer.
+pub trait CloneRef: DisposeRef {
+    unsafe fn clone(ptr: *mut Self::RefTo) -> *mut Self::RefTo;
+}
+impl CloneRef for str {
+    unsafe fn clone(r: *mut Self::RefTo) -> *mut c_char {
+        let ptr = libc::malloc(libc::strlen(r) + 1) as *mut c_char;
+        libc::strcpy(ptr, r);
+        ptr as *mut c_char
+    }
+}
 
 /// A wrapper for pointers made by C that are now partially owned in Rust.
 ///
@@ -62,6 +74,14 @@ impl<'a, D:?Sized> Drop for CSemiBox<'a, D> where D:DisposeRef+'a {
         unsafe { <D as DisposeRef>::dispose(self.ptr) }
     }
 }
+
+impl<'a, T: ?Sized> Clone for CSemiBox<'a, T> where T: DisposeRef + CloneRef {
+    fn clone(&self) -> CSemiBox<'a, T> {
+        unsafe {
+            CSemiBox::new(<T as CloneRef>::clone(self.as_ptr()))
+        }
+    }
+}
 impl<'a, D> Deref for CSemiBox<'a, D> where D:DisposeRef+'a, *mut D::RefTo:Into<&'a D> {
     type Target = D;
     fn deref(&self) -> &D {
@@ -88,9 +108,11 @@ impl<'a, T> fmt::Debug for CSemiBox<'a, T> where T:fmt::Debug+DisposeRef+'a, *mu
         fmt::Debug::fmt(self as &T, fmt)
     }
 }
-impl<'a, T> PartialEq<T> for CSemiBox<'a, T> where T:'a+DisposeRef+PartialEq, *mut T::RefTo:Into<&'a T> {
+impl<'a, T> PartialEq<T> for CSemiBox<'a, T> where T:'a+DisposeRef, *mut T::RefTo:Into<&'a T> {
     fn eq(&self, other: &T) -> bool {
-        (self as &T).eq(other)
+        unsafe {
+            mem::transmute::<_, usize>(self) == mem::transmute::<_, usize>(other)
+        }
     }
 }
 impl<'a> From<&'a CStr> for CSemiBox<'a, str> {
@@ -164,12 +186,10 @@ impl<'a> Deref for CBox<str> {
         }
     }
 }
-impl Clone for CBox<str> {
-    fn clone(&self) -> CBox<str> {
+impl<T: ?Sized> Clone for CBox<T> where T: DisposeRef + CloneRef {
+    fn clone(&self) -> CBox<T> {
         unsafe {
-            let ptr = libc::malloc(self.len() as size_t + 1) as *mut c_char;
-            libc::strcpy(ptr, self.ptr);
-            CBox::new(ptr)
+            CBox::new(<T as CloneRef>::clone(self.as_ptr()))
         }
     }
 }
@@ -200,10 +220,10 @@ impl<T> DerefMut for CBox<T> where T:DisposeRef {
         unsafe { mem::transmute(self.ptr) }
     }
 }
-impl<'a, T> PartialEq<T> for CBox<T> where T:'a+DisposeRef+PartialEq, *mut T::RefTo:Into<&'a T> {
+impl<'a, T> PartialEq<T> for CBox<T> where T:'a+DisposeRef, *mut T::RefTo:Into<&'a T> {
     fn eq(&self, other: &T) -> bool {
         unsafe {
-            mem::transmute::<_, &T>(self.ptr) == other
+            mem::transmute::<_, usize>(self) == mem::transmute::<_, usize>(other)
         }
     }
 }
