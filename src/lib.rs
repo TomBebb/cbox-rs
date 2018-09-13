@@ -1,5 +1,6 @@
 //! Provides two types, `CSemiBox` and `DisposeRef`
 extern crate libc;
+extern crate stable_deref_trait;
 use libc::{free, c_char, c_void, size_t};
 use std::borrow::Borrow;
 use std::ffi::{CString, CStr};
@@ -7,6 +8,8 @@ use std::{fmt, mem, str};
 use std::ops::{Deref, DerefMut, Drop};
 use std::cmp::PartialEq;
 use std::marker::PhantomData;
+use stable_deref_trait::StableDeref;
+
 /// Implemented by any type of which its reference represents a C pointer that can be disposed.
 pub trait DisposeRef {
     /// What a reference to this type represents as a C pointer.
@@ -88,6 +91,9 @@ impl<'a, D> Deref for CSemiBox<'a, D> where D:DisposeRef+'a, *mut D::RefTo:Into<
         self.ptr.into()
     }
 }
+unsafe impl<'a, D> StableDeref for CSemiBox<'a, D>
+where D:DisposeRef+'a, *mut D::RefTo:Into<&'a D>
+{ }
 impl<'a, D> Borrow<D> for CSemiBox<'a, D> where D:DisposeRef+'a, *mut D::RefTo:Into<&'a D> {
     fn borrow(&self) -> &D {
         self.ptr.into()
@@ -210,6 +216,9 @@ impl<T> Deref for CBox<T> where T:DisposeRef {
         unsafe { mem::transmute(self.ptr) }
     }
 }
+
+unsafe impl<T> StableDeref for CBox<T> where T:DisposeRef { }
+
 impl<T> Borrow<T> for CBox<T> where T:DisposeRef {
     fn borrow(&self) -> &T {
         unsafe { mem::transmute(self.ptr) }
